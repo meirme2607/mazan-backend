@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { createScraper, CompanyTypes } = require('israeli-bank-scrapers');
+const { buildCredentials } = require('./credentials');
 
 const app = express();
 // ב-Render יקצה לנו משתנה סביבה PORT
@@ -12,7 +13,7 @@ app.use(express.json());
 const supportedBanks = Object.values(CompanyTypes);
 
 app.post('/api/scrape', async (req, res) => {
-  const { username, password, companyId, id, num } = req.body;
+  const { password, companyId } = req.body;
 
   if (!password || !companyId) {
     return res.status(400).json({
@@ -39,15 +40,10 @@ app.post('/api/scrape', async (req, res) => {
       showBrowser: false, 
       // חובה כדי ש-Puppeteer ירוץ בתוך Docker/Render:
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] 
     };
 
-    const credentials = {
-      username: username || id || '',
-      password: password,
-      id: id || username || '', 
-      num: num || '' 
-    };
+    const credentials = buildCredentials(req.body);
 
     const scraper = createScraper(options);
     console.log(`Starting scraper for ${companyId}...`);
@@ -69,6 +65,15 @@ app.post('/api/scrape', async (req, res) => {
       });
     }
   } catch (e) {
+    if (e.code === 'MISSING_CREDENTIALS') {
+      return res.status(400).json({
+        success: false,
+        errorType: 'MISSING_CREDENTIALS',
+        errorMessage: e.message,
+        missingFields: e.missingFields
+      });
+    }
+
     console.error('Unexpected error during scraping:', e);
     return res.status(500).json({
       success: false,
